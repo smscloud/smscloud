@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebSocket Test</title>
+    <script type="text/javascript" src="swfobject.js"></script>
+    <script type="text/javascript" src="web_socket.js"></script>
+</head>
+
+<body>
+    <div id="result">-</div>
+    <div id="log">?</div>
+    <input id="send" type="button" value="send">
+    <script src=zepto.min.js></script>
+    <script>
+    $('#send').on('click', function(e) {
+        ws.send("Clicked");
+    })
+    </script>
+    <script type="text/javascript">
+    WEB_SOCKET_SWF_LOCATION = "WebSocketMain.swf";
+
+    var ws = new WebSocket("ws://localhost:5603/");
+    ws.onopen = function() {
+        $('#log').text("connected")
+        ws.send("Hello");
+    };
+    ws.onmessage = function(e) {
+        $('#result').text(e.data)
+    };
+    ws.onclose = function() {
+        $('#log').text("disconnected")
+    };
+    </script>
+</body>
+
+</html>

@@ -1,4 +1,4 @@
 SmsCloud
 -------------------
-SmsCloud makes it easy to access web services by simply sending SMS messages.
+SmsCloud makes it easy to access web services via regular SMS messages.
 http://smscloud.org

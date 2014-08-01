@@ -1,0 +1,7 @@
+{
+	"name": "Wikipedia",
+	"command_port_path": "/dev/tty.HUAWEIMobile-9",
+	"notify_port_path": "/dev/tty.HUAWEIMobile-11",
+	"balance_ussd": "*100#",
+	"IMEI": "352216042259594"
+}
