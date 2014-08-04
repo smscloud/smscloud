@@ -3,10 +3,9 @@ package main
 import (
 	"log"
 	"net/http"
+	"net/websocket"
 	"strconv"
 	"time"
-
-	"code.google.com/p/go.net/websocket"
 )
 
 func main() {

@@ -8,8 +8,10 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"github.com/jinzhu/gorm"
 	_ "github.com/lib/pq"
 
@@ -19,9 +21,11 @@ import (
 	"github.com/xlab/smscloud/misc"
 	"github.com/xlab/smscloud/wikipedia"
 	"github.com/xlab/smscloud/wolfram"
+	"github.com/xlab/smsru"
 )
 
 const (
+	pubTopic   = "notifications"
 	subTopic   = "messages"
 	subChannel = "sc_server"
 )
@@ -29,15 +33,16 @@ const (
 const (
 	latinSize = 306
 	cyrSize   = 134
-	urlLen    = 13
+	urlLen    = 21
 )
 
 const (
-	reqPending int8 = 0
+	reqPending int8 = iota
 	reqDone
 	reqError
 )
 
+const approxSmsCost = 0.70
 const originCountry = "Russia"
 const wolframUserURI = "http://www.wolframalpha.com/input/"
 
@@ -70,11 +75,6 @@ func init() {
 			Usage: "a database config file",
 		},
 		cli.StringFlag{
-			Name:  "s,sc-cfg",
-			Value: "services.json",
-			Usage: "a services config file",
-		},
-		cli.StringFlag{
 			Name:  "c,cred-cfg",
 			Value: "credentials.json",
 			Usage: "an API credentials config file",
@@ -97,9 +97,6 @@ func main() {
 			Credentials: &credConfig{},
 		}
 		if err := hCfg.DbCfg.ReadFromFile(c.String("db-cfg")); err != nil {
-			log.Fatalln(err)
-		}
-		if err := hCfg.ServicesCfg.ReadFromFile(c.String("sc-cfg")); err != nil {
 			log.Fatalln(err)
 		}
 		if err := hCfg.Credentials.ReadFromFile(c.String("cred-cfg")); err != nil {
@@ -125,20 +122,11 @@ func main() {
 	}
 }
 
-type servicesConfig map[string]string
-
-func (s *servicesConfig) ReadFromFile(name string) error {
-	data, err := ioutil.ReadFile(name)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, s)
-}
-
 type credConfig struct {
-	GooglePrivateKey  string
-	GoogleClientEmail string
-	WolframPrivateKey string
+	GooglePrivateKey  string `json:"google_private_key"`
+	GoogleClientEmail string `json:"google_client_email"`
+	WolframPrivateKey string `json:"wolfram_private_key"`
+	SmsruPrivateKey   string `json:"smsru_private_key"`
 }
 
 func (c *credConfig) ReadFromFile(name string) error {
@@ -182,6 +170,7 @@ type MessageHandler struct {
 	wolfApi  *wolfram.Api
 	wikiApi  *wikipedia.Api
 	googlApi *googl.Shortener
+	smsApi   *smsru.Api
 }
 
 type Request struct {
@@ -190,7 +179,7 @@ type Request struct {
 	Address       string `sql:"size:20"`
 	Service       string `sql:"size:20"`
 	ServiceReply  string
-	ShortURL      string `sql:"size:20"`
+	ShortUrl      string `sql:"size:20"`
 	RequestStatus int8
 	Timestamp     time.Time
 	OpTimestamp   time.Time
@@ -198,9 +187,9 @@ type Request struct {
 
 func NewMessageHandler(cfg *handlerConfig) (h *MessageHandler, err error) {
 	h = &MessageHandler{
-		services: cfg.ServicesCfg,
-		wikiApi:  wikipedia.NewApi(),
-		wolfApi:  wolfram.NewApi(cfg.Credentials.WolframPrivateKey, originCountry),
+		wikiApi: wikipedia.NewApi(),
+		wolfApi: wolfram.NewApi(cfg.Credentials.WolframPrivateKey, originCountry),
+		smsApi:  smsru.NewApi(cfg.Credentials.SmsruPrivateKey),
 	}
 	if h.googlApi, err = googl.NewShortener(
 		cfg.Credentials.GoogleClientEmail,
@@ -238,12 +227,17 @@ func (m *MessageHandler) HandleMessage(nmsg *nsq.Message) (err error) {
 		OpTimestamp:   time.Time(msg.OpTimestamp),
 	}
 	if err = m.db.Create(&req).Error; err != nil {
+		log.Println("error storing message:", err)
+		m.notifyError()
 		return
 	}
 	log.Printf("stored message %x", msg.UUID)
+	m.notifyReceived()
+	// save request updates on return
 	defer func(r *Request) {
 		if err = m.db.Save(r).Error; err != nil {
 			log.Printf("error saving query %x: %s", msg.UUID, err.Error())
+			m.notifyError()
 		}
 	}(&req)
 	switch msg.Origin {
@@ -252,43 +246,119 @@ func (m *MessageHandler) HandleMessage(nmsg *nsq.Message) (err error) {
 		if err != nil {
 			req.RequestStatus = reqError
 			log.Printf("error querying %x: %s", msg.UUID, err.Error())
-			return
+			m.notifyError()
+			return nil
 		}
-		if short, err := m.googlApi.Short(wolframURL(input)); err != nil {
+		if short, err := m.googlApi.Short(wolframURL(msg.Text)); err != nil {
 			log.Printf("error shorting url for %x: %s", msg.UUID, err.Error())
+			m.notifyError()
 		} else {
-			req.ShortURL = short.String()
+			req.ShortUrl = short.String()
 		}
 		req.RequestStatus = reqDone
 		req.ServiceReply = wrapReply(reply)
+		m.notifySuccess()
 	case "wikipedia":
-		reply, uri, err := m.queryWikipedia(msg.Text)
+		reply, uri, err := m.queryWikipedia(wikipedia.EN, msg.Text)
+		if err != nil || len(reply) < 1 {
+			reply, uri, err = m.queryWikipedia(wikipedia.RU, msg.Text)
+		}
 		if err != nil {
 			req.RequestStatus = reqError
 			log.Printf("error querying %x: %s", msg.UUID, err.Error())
-			return
+			m.notifyError()
+			return nil
 		}
 		if short, err := m.googlApi.Short(genericURL(uri)); err != nil {
 			log.Printf("error shorting url for %x: %s", msg.UUID, err.Error())
+			m.notifyError()
 		} else {
-			req.ShortURL = short.String()
+			req.ShortUrl = short.String()
 		}
 		req.RequestStatus = reqDone
 		req.ServiceReply = wrapReply(reply)
+		m.notifySuccess()
 	}
-	// TODO:
-	// send reply
-	// send notification
-	// check everything
-	// do the web part
+	if err = m.sendReply(&req); err != nil {
+		log.Println("error sending reply:", err)
+		m.notifyError()
+		return nil
+	}
+	if r, err := m.getReserve(); err != nil {
+		log.Println("failed to get reserve:", err)
+		m.notifyError()
+	} else {
+		m.notifyReserve(r)
+	}
+	return
+}
+
+func (m *MessageHandler) getReserve() (r int, err error) {
+	var balance float32
+	if balance, err = m.smsApi.MyBalance(); err != nil {
+		return
+	}
+	return int(balance / approxSmsCost), nil
+}
+
+func (m *MessageHandler) notifyError() (err error) {
+	n := misc.Notification{Kind: misc.NotifyError}
+	body, err := json.Marshal(n)
+	if err != nil {
+		return err
+	}
+	if err = m.stats.Publish(pubTopic, body); err != nil {
+		log.Println(err)
+	}
+	return
+}
+
+func (m *MessageHandler) notifySuccess() (err error) {
+	n := misc.Notification{Kind: misc.NotifySuccess}
+	body, err := json.Marshal(n)
+	if err != nil {
+		return err
+	}
+	if err = m.stats.Publish(pubTopic, body); err != nil {
+		log.Println(err)
+	}
+	return
+}
+
+func (m *MessageHandler) notifyReceived() (err error) {
+	n := misc.Notification{Kind: misc.NotifyReceived}
+	body, err := json.Marshal(n)
+	if err != nil {
+		return err
+	}
+	if err = m.stats.Publish(pubTopic, body); err != nil {
+		log.Println(err)
+	}
+	return
+}
+
+func (m *MessageHandler) notifyReserve(reserve int) (err error) {
+	n := misc.Notification{
+		Kind:  misc.NotifyReserve,
+		Value: strconv.Itoa(reserve),
+	}
+	body, err := json.Marshal(n)
+	if err != nil {
+		return err
+	}
+	if err = m.stats.Publish(pubTopic, body); err != nil {
+		log.Println(err)
+	}
 	return
 }
 
 func (m *MessageHandler) queryWolfram(input string) (reply string, err error) {
 	var res *wolfram.QueryResult
 	if res, err = m.wolfApi.Query(input); err != nil {
-		err = errors.New("unable to query wolfram: " + err.Error())
-		return
+		if err == wolfram.ErrUnknown {
+			return "", nil // nothing computed
+		}
+		return "", err
 	}
 	if len(res.Pods) < 2 || len(res.Pods[1].SubPods) < 1 {
 		return
@@ -299,7 +369,7 @@ func (m *MessageHandler) queryWolfram(input string) (reply string, err error) {
 
 func (m *MessageHandler) queryWikipedia(lang wikipedia.Language, input string) (reply, uri string, err error) {
 	var res *wikipedia.SearchSuggestion
-	if res, err = m.wikiApi.Query(input); err != nil {
+	if res, err = m.wikiApi.Query(lang, input); err != nil {
 		err = errors.New("unable to query wikipedia: " + err.Error())
 		return
 	}
@@ -313,7 +383,7 @@ func (m *MessageHandler) queryWikipedia(lang wikipedia.Language, input string) (
 
 func wolframURL(input string) *url.URL {
 	v := url.Values{}
-	v.Set("i", msg.Text)
+	v.Set("i", input)
 	u, _ := url.ParseRequestURI(wolframUserURI)
 	u.RawQuery = v.Encode()
 	return u
@@ -322,6 +392,45 @@ func wolframURL(input string) *url.URL {
 func genericURL(uri string) (u *url.URL) {
 	u, _ = url.ParseRequestURI(uri)
 	return
+}
+
+func (m *MessageHandler) sendError(req *Request) error {
+	t := req.OpTimestamp.Format(`2 Jan 15:04`)
+	text := fmt.Sprintf("Внутренняя ошибка обработки запроса от %s", t)
+	sms := smsru.Sms{
+		To:   req.Address,
+		Text: text,
+		Test: true,
+	}
+	_, err := m.smsApi.SmsSend(&sms)
+	return err
+}
+
+func (m *MessageHandler) sendReply(req *Request) error {
+	var text string
+	if len(req.ServiceReply) < 1 {
+		t := req.OpTimestamp.Format(`2 Jan 15:04`)
+		text = fmt.Sprintf("На ваш запрос от %s не удалось получить ответ %s", t, req.ShortUrl)
+	} else {
+		text = req.ServiceReply
+		if isLatin(text) {
+			text = text + " " + req.ShortUrl
+		}
+	}
+	sms := smsru.Sms{
+		To:   req.Address,
+		Text: text,
+	}
+	cost, n, err := m.smsApi.SmsCost(&sms)
+	if err != nil {
+		return err
+	}
+	log.Println("reply to", req.Address, "is:", text)
+	log.Println("sent", n, "messages, total cost", cost)
+	if _, err = m.smsApi.SmsSend(&sms); err != nil {
+		return err
+	}
+	return nil
 }
 
 // wrapReply is a very dumb sanitizer.
@@ -333,12 +442,12 @@ func wrapReply(reply string) string {
 		"  ", " ", ". ", ".", ", ", ",", "; ", ";",
 		"  ", " ", " .", ".", " ,", ",", " ;", ";",
 		" () ", " ", "()", "", " - ", " ", " – ", " ", " — ", " ",
-		" ( ) ", " ", " ( or  ) ", " ", "; ; ", "", "(, ", "(",
+		" ( ) ", " ", " ( or  ) ", " ", "; ; ", "", "(, ", "(", " | ", "|",
 	)
 	reply = r.Replace(reply)
 	reply = cutStr(reply, latinSize-urlLen)
-	if len(reply != len([]byte(reply))) {
-		reply = cutStr(reply, cyrSize-urlLen)
+	if !isLatin(reply) {
+		reply = cutStr(reply, cyrSize)
 	}
 	reply = strings.TrimSpace(reply)
 	return reply
@@ -346,5 +455,17 @@ func wrapReply(reply string) string {
 
 func cutStr(str string, n int) string {
 	runes := []rune(str)
-	return string(runes[0:n])
+	if n < len(str) {
+		return string(runes[0:n])
+	}
+	return str
+}
+
+func isLatin(text string) bool {
+	for _, r := range text {
+		if !unicode.In(r, unicode.Latin) {
+			return false
+		}
+	}
+	return true
 }
