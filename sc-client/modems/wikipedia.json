@@ -1,5 +1,5 @@
 {
-	"name": "Wikipedia",
+	"name": "wikipedia",
 	"command_port_path": "/dev/tty.HUAWEIMobile-9",
 	"notify_port_path": "/dev/tty.HUAWEIMobile-11",
 	"balance_ussd": "*100#",

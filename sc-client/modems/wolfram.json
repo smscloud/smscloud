@@ -1,5 +1,5 @@
 {
-	"name": "Wolfram",
+	"name": "wolfram",
 	"command_port_path": "/dev/tty.HUAWEIMobile-Modem",
 	"notify_port_path": "/dev/tty.HUAWEIMobile-Pcui",
 	"balance_ussd": "*100#",

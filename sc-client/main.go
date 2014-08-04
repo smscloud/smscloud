@@ -27,6 +27,8 @@ var app = cli.NewApp()
 var nsqLog = log.New(os.Stderr, "sc-client: ", log.LstdFlags)
 
 func init() {
+	log.SetPrefix("sc-client: ")
+	log.SetFlags(log.Lshortfile)
 	app.Name = "sc-client"
 	app.Usage = "communicates with modems and handles incomig SMS"
 	app.Version = "0.1"
@@ -49,8 +51,8 @@ func init() {
 }
 
 var supportedNames = map[string]bool{
-	"Wolfram":   true,
-	"Wikipedia": true,
+	"wolfram":   true,
+	"wikipedia": true,
 }
 
 func main() {
@@ -77,11 +79,11 @@ func main() {
 			for msg := range hdl.messages {
 				body, err := json.Marshal(msg)
 				if err != nil {
-					log.Printf("sc-client: failed to marshal msg %x", msg.UUID)
+					log.Printf("failed to marshal msg %x", msg.UUID)
 					continue
 				}
 				if err = producer.Publish(pubTopic, body); err != nil {
-					log.Printf("sc-client: failed to publish msg %x", msg.UUID)
+					log.Printf("failed to publish msg %x", msg.UUID)
 				}
 			}
 		}()
@@ -110,7 +112,7 @@ func (m *monitorHandler) Handle(port int) {
 		http.Handle("/"+strings.ToLower(mon.Name()), mon)
 	}
 	go func() {
-		log.Printf("sc-client: spawning web interface at http://localhost:%d", port)
+		log.Printf("spawning web interface at http://localhost:%d", port)
 		if err := http.ListenAndServe(":"+strconv.Itoa(port), nil); err != nil {
 			log.Fatalln(err)
 		}

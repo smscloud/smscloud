@@ -1,16 +1,14 @@
 package misc
 
-import (
-	"time"
-
-	"github.com/xlab/at/sms"
-)
+import "time"
 
 type Message struct {
-	UUID      []byte
-	Origin    string // receiver's name
-	Timestamp time.Time
-	Msg       *sms.Message
+	UUID        []byte
+	Origin      string // receiver's name
+	Text        string
+	Address     string // sender's address
+	Timestamp   time.Time
+	OpTimestamp time.Time
 }
 
 type Notification struct {

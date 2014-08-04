@@ -109,10 +109,10 @@ func (m *Monitor) Run() (err error) {
 			m.Balance = ""
 			m.Ready = false
 			m.uptimeBase = time.Time{}
-			log.Printf("sc-client: waiting for device %s", m.dev.NotifyPort)
+			log.Printf("waiting for device %s", m.dev.NotifyPort)
 			m.checkTimer.Reset(DeviceCheckInterval)
 		case ReadyState:
-			log.Printf("sc-client: device connected %s", m.dev.NotifyPort)
+			log.Printf("device connected %s", m.dev.NotifyPort)
 			m.Ready = true
 			m.uptimeBase = time.Now()
 			go func() {
@@ -135,10 +135,12 @@ func (m *Monitor) Run() (err error) {
 							log.Fatalln(err)
 						}
 						wrap := &misc.Message{
-							UUID:      uuid,
-							Origin:    m.name,
-							Timestamp: time.Now(),
-							Msg:       msg,
+							UUID:        uuid,
+							Origin:      m.name,
+							Text:        msg.Text,
+							Address:     string(msg.Address),
+							Timestamp:   time.Now(),
+							OpTimestamp: time.Time(msg.ServiceCenterTime),
 						}
 						m.messages <- wrap
 					case <-t.C:
