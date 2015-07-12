@@ -57,9 +57,9 @@ func main() {
 		if !c.IsSet("nsqd") {
 			log.Fatalln("no nsqd address is set")
 		}
-		http.Handle("/", http.FileServer(http.Dir("/Users/xlab/Documents/Coding/Web/smscloud.org")))
+		http.Handle("/", http.FileServer(http.Dir("public/")))
 		//http.Handle("/status", websocket.Handler(CounterServer))
-		if err := http.ListenAndServe(":80", nil); err != nil {
+		if err := http.ListenAndServe(":8080", nil); err != nil {
 			log.Fatalln(err)
 		}
 	}

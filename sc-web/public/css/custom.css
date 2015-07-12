@@ -1,0 +1,73 @@
+body {
+    background: url('../images/bg2.jpg');
+    background-size: cover;
+    background-repeat: no-repeat no-repeat;
+}
+.colorful {
+    color: #d9230f;
+}
+a {
+    color: #b10000;
+}
+.white {
+    color: #ffffff;
+}
+.wrap {
+    margin: 10px;
+}
+.panel-heading {
+    -webkit-border-radius: 4px 4px 0 0;
+    -moz-border-radius: 4px 4px 0 0;
+    border-radius: 4px 4px 0 0;
+}
+.panel {
+    -webkit-border-radius: 4px;
+    -moz-border-radius: 4px;
+    border-radius: 4px;
+    border: 0;
+}
+.navbar {
+    -webkit-border-radius: 4px;
+    -moz-border-radius: 4px;
+    border-radius: 4px;
+    border: 0;
+}
+.container-fixed {
+    margin: 0 auto;
+    max-width: 960px;
+}
+.container-fixed > hr {
+    margin: 30px 0;
+}
+.container-full {
+    margin: 0 auto;
+    width: 100%;
+    min-height: 100%;
+    overflow: hidden;
+}
+.container-full a {
+    color: #efefef;
+    text-decoration: none;
+}
+.greeting {
+    margin-top: 40px;
+    margin-bottom: 20px;
+}
+.margin-t {
+    margin-top: 30px;
+}
+.counter {
+    -webkit-border-radius: 4px;
+    -moz-border-radius: 4px;
+    border-radius: 4px;
+    border: 1px solid #ffffff;
+    padding: 10px;
+}
+.counter > .num {
+    font-size: 62px;
+    color: #ffffff;
+}
+.counter > .desc {
+    font-size: 14px;
+    color: #ffffff;
+}
